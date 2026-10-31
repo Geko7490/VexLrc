@@ -32,6 +32,10 @@ import com.vexlrc.generator.core.ai.AudioPcmDecoder
 import com.vexlrc.generator.core.ai.WhisperModelManager
 import com.vexlrc.generator.core.ai.WhisperNative
 import com.vexlrc.generator.core.ai.WhisperTokenTiming
+import com.vexlrc.generator.core.ai.ForcedAlignmentModelManager
+import com.vexlrc.generator.core.ai.ForcedAlignmentEngine
+import com.vexlrc.generator.core.ai.DemucsModelManager
+import com.vexlrc.generator.core.ai.DemucsVocalSeparator
 import com.vexlrc.generator.core.project.ExportHistoryStore
 import com.vexlrc.generator.core.project.ExportRecord
 import com.vexlrc.generator.core.project.LrcProject
@@ -39,6 +43,7 @@ import com.vexlrc.generator.core.project.ProjectStore
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
+import java.io.File
 import com.vexlrc.generator.core.lrc.LyricLine
 import com.vexlrc.generator.core.lrc.LyricWord
 import com.vexlrc.generator.core.waveform.WaveformAudioDecoder
@@ -83,8 +88,15 @@ private fun VexLrcApp() {
     val projectStore = remember { ProjectStore(context.applicationContext) }
     val exportStore = remember { ExportHistoryStore(context.applicationContext) }
     val whisperModels = remember { WhisperModelManager(context.applicationContext) }
+    val alignerModels = remember { ForcedAlignmentModelManager(context.applicationContext) }
+    val demucsModels = remember { DemucsModelManager(context.applicationContext) }
+    val demucsSeparator = remember { DemucsVocalSeparator(context.applicationContext) }
     val coroutineScope = rememberCoroutineScope()
     var installedModels by remember { mutableStateOf(whisperModels.installedIds()) }
+    var installedAligners by remember { mutableStateOf(alignerModels.installedIds()) }
+    var demucsInstalled by remember { mutableStateOf(demucsModels.isInstalled()) }
+    var aiAudioUri by remember { mutableStateOf<Uri?>(null) }
+    var aiAudioFile by remember { mutableStateOf<File?>(null) }
     var selectedWhisperModel by remember { mutableStateOf("tiny") }
     var selectedWhisperLanguage by remember { mutableStateOf("auto") }
     var downloadingModelId by remember { mutableStateOf<String?>(null) }
@@ -106,6 +118,8 @@ private fun VexLrcApp() {
             player?.release()
             player = null
             audioUri = uri
+            aiAudioUri = null
+            aiAudioFile = null
             audioName = uri.lastPathSegment?.substringAfterLast('/') ?: "Selected audio"
             playing = false
             position = 0L
@@ -133,6 +147,8 @@ private fun VexLrcApp() {
         projects = withContext(Dispatchers.IO) { projectStore.list() }
         exportHistory = withContext(Dispatchers.IO) { exportStore.list() }
         installedModels = withContext(Dispatchers.IO) { whisperModels.installedIds() }
+        installedAligners = withContext(Dispatchers.IO) { alignerModels.installedIds() }
+        demucsInstalled = withContext(Dispatchers.IO) { demucsModels.isInstalled() }
         val recent = projects.firstOrNull()
         if (recent != null) {
             currentProjectId = recent.id
@@ -357,7 +373,7 @@ private fun VexLrcApp() {
                                         }
                                         Button(
                                             onClick = {
-                                                val selectedUri = audioUri
+                                                val selectedUri = aiAudioUri ?: audioUri
                                                 val modelFile = whisperModels.fileFor(selectedWhisperModel)
                                                 if (selectedUri == null) {
                                                     status = "Choose an audio file first"
@@ -404,7 +420,71 @@ private fun VexLrcApp() {
                                             Spacer(Modifier.width(8.dp))
                                             Text(if (aiBusy) "Processing audio…" else "Transcribe with Whisper")
                                         }
-                                        Text("Token timestamps are experimental and are not a dedicated forced aligner.", color = Muted, fontSize = 10.sp)
+                                        Text("Whisper token timestamps are experimental. For accurate word-level timing, run the transcript-conditioned aligner below.", color = Muted, fontSize = 10.sp)
+                                        Divider()
+                                        Text("VOCAL SEPARATION", color = Purple, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        Text("Demucs HTDemucs FT • local ONNX inference • 166 MB model", color = Muted, fontSize = 11.sp)
+                                        Button(
+                                            onClick = {
+                                                val source = audioUri
+                                                val model = demucsModels.modelFile()
+                                                if (source == null) status = "Choose an audio file first"
+                                                else if (model == null) { status = "Download the Demucs model in Model Center"; tab = "Models" }
+                                                else coroutineScope.launch {
+                                                    aiBusy = true
+                                                    try {
+                                                        status = "Decoding audio for vocal separation…"
+                                                        val pcm = withContext(Dispatchers.IO) { AudioPcmDecoder.decode(context.applicationContext, source) }
+                                                        status = "Demucs is separating vocals…"
+                                                        val file = withContext(Dispatchers.Default) { demucsSeparator.separate(pcm, model) }
+                                                        aiAudioFile = file
+                                                        aiAudioUri = Uri.fromFile(file)
+                                                        status = "Vocal stem ready. Whisper will use it for transcription."
+                                                    } catch (e: Exception) { status = "Demucs failed: " + (e.localizedMessage ?: "unknown error") }
+                                                    finally { aiBusy = false }
+                                                }
+                                            },
+                                            enabled = !aiBusy && demucsInstalled,
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) { Text(if (aiAudioUri != null) "Vocal stem ready • separate again" else "Separate vocals with Demucs") }
+                                        if (aiAudioUri != null) {
+                                            TextButton(onClick = { aiAudioUri = null; aiAudioFile = null }) { Text("Use original audio") }
+                                        }
+                                        Divider()
+                                        Text("FORCED ALIGNMENT", color = Purple, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        Text("Align the current lyric transcript to the selected audio. Choose Turkish or English above.", color = Muted, fontSize = 11.sp)
+                                        Button(
+                                            onClick = {
+                                                val source = aiAudioUri ?: audioUri
+                                                val language = if (selectedWhisperLanguage == "en") "en" else "tr"
+                                                val model = alignerModels.modelFile(language)
+                                                val vocab = alignerModels.vocabFile(language)
+                                                if (source == null) status = "Choose an audio file first"
+                                                else if (lines.none { it.text.isNotBlank() }) status = "Enter or transcribe lyrics first"
+                                                else if (model == null || vocab == null || language !in installedAligners) { status = "Download the ${language.uppercase()} aligner in Model Center"; tab = "Models" }
+                                                else coroutineScope.launch {
+                                                    aiBusy = true
+                                                    try {
+                                                        status = "Preparing audio for forced alignment…"
+                                                        val pcm = withContext(Dispatchers.IO) { AudioPcmDecoder.decode(context.applicationContext, source) }
+                                                        val transcript = lines.joinToString(" ") { it.text.trim() }.trim()
+                                                        status = "Running CTC Viterbi alignment…"
+                                                        val words = withContext(Dispatchers.Default) { ForcedAlignmentEngine.align(context.applicationContext, model, vocab, pcm, transcript) }
+                                                        var cursor = 0
+                                                        lines = lines.map { line ->
+                                                            val count = line.text.trim().split(Regex("\\s+")).count { it.isNotBlank() }
+                                                            val aligned = words.drop(cursor).take(count)
+                                                            cursor += count
+                                                            line.copy(words = aligned.map { WordEdit(it.text, it.startMs) })
+                                                        }
+                                                        status = "Forced alignment complete • ${words.size} words. Review before export."
+                                                    } catch (e: Exception) { status = "Alignment failed: " + (e.localizedMessage ?: "unknown error") }
+                                                    finally { aiBusy = false }
+                                                }
+                                            },
+                                            enabled = !aiBusy && (selectedWhisperLanguage == "tr" || selectedWhisperLanguage == "en"),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) { Text(if (aiBusy) "Processing…" else "Align current lyrics") }
                                     }
                                 }
                                 val issues = LrcValidator.validate(toLyricModels(lines), duration.takeIf { it > 0L })
@@ -557,12 +637,72 @@ private fun VexLrcApp() {
                             }
                         }
                         Divider()
+                        Text("FORCED ALIGNMENT MODELS", color = Purple, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text("Transcript-conditioned CTC/Viterbi models • Turkish and English", color = Muted, fontSize = 11.sp)
+                        alignerModels.catalog.forEach { model ->
+                            val installed = model.id in installedAligners
+                            Card(colors = CardDefaults.cardColors(containerColor = SurfaceDark)) {
+                                Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                                    Text(model.title, fontWeight = FontWeight.Bold)
+                                    Text(model.description, color = Muted, fontSize = 11.sp)
+                                    Text(if (installed) "INSTALLED" else "About 356 MB", color = if (installed) Color(0xFF8DE0B0) else Muted, fontSize = 10.sp)
+                                    if (installed) OutlinedButton(onClick = {
+                                        alignerModels.delete(model.id)
+                                        installedAligners = alignerModels.installedIds()
+                                    }, modifier = Modifier.fillMaxWidth()) { Text("Delete model") }
+                                    else Button(onClick = {
+                                        coroutineScope.launch {
+                                            downloadingModelId = "align-${model.id}"
+                                            modelDownloadProgress = 0f
+                                            try {
+                                                alignerModels.download(model.id) { done, total ->
+                                                    withContext(Dispatchers.Main) { modelDownloadProgress = (done.toFloat() / total.coerceAtLeast(1L)).coerceIn(0f, 1f) }
+                                                }
+                                                installedAligners = alignerModels.installedIds()
+                                                status = "${model.title} installed"
+                                            } catch (e: Exception) { status = "Aligner download failed: " + (e.localizedMessage ?: "error") }
+                                            finally { downloadingModelId = null }
+                                        }
+                                    }, enabled = downloadingModelId == null, modifier = Modifier.fillMaxWidth()) { Text("Download aligner") }
+                                }
+                            }
+                        }
+                        Divider()
+                        Text("VOCAL SEPARATION", color = Purple, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Card(colors = CardDefaults.cardColors(containerColor = SurfaceDark)) {
+                            Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                                Text("Demucs HTDemucs FT Vocals", fontWeight = FontWeight.Bold)
+                                Text("166 MB ONNX model. Produces a vocal stem for transcription; current input pipeline downmixes to mono before inference.", color = Muted, fontSize = 11.sp)
+                                Text(if (demucsInstalled) "INSTALLED" else "About 166 MB", color = if (demucsInstalled) Color(0xFF8DE0B0) else Muted, fontSize = 10.sp)
+                                if (demucsInstalled) OutlinedButton(onClick = {
+                                    demucsModels.delete()
+                                    demucsInstalled = false
+                                    aiAudioUri = null
+                                    aiAudioFile = null
+                                }, modifier = Modifier.fillMaxWidth()) { Text("Delete model") }
+                                else Button(onClick = {
+                                    coroutineScope.launch {
+                                        downloadingModelId = "demucs"
+                                        modelDownloadProgress = 0f
+                                        try {
+                                            demucsModels.download { done, total ->
+                                                withContext(Dispatchers.Main) { modelDownloadProgress = (done.toFloat() / total.coerceAtLeast(1L)).coerceIn(0f, 1f) }
+                                            }
+                                            demucsInstalled = true
+                                            status = "Demucs model installed"
+                                        } catch (e: Exception) { status = "Demucs download failed: " + (e.localizedMessage ?: "error") }
+                                        finally { downloadingModelId = null }
+                                    }
+                                }, enabled = downloadingModelId == null, modifier = Modifier.fillMaxWidth()) { Text("Download Demucs model") }
+                            }
+                        }
+                        Divider()
                         Text("WORD TIMING", color = Purple, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         ModelCard("Whisper token timestamps", "Experimental token-level timestamps are included with transcription. Review and correct them in Studio.", "Available with Whisper • experimental")
                         ModelCard("Dedicated Forced Alignment", "A separate transcript-conditioned aligner is not bundled yet. Whisper token timing must not be treated as guaranteed forced alignment.", "Not integrated")
                         Divider()
                         Text("VOCAL SEPARATION", color = Purple, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        ModelCard("Demucs", "The Android ONNX inference pipeline, audio chunking and memory-safe stem reconstruction still need device validation. No unusable multi-hundred-MB model is offered for download.", "Not available yet")
+                        ModelCard("Demucs", "ONNX vocal-stem extraction with chunked overlap-add is integrated. Output can be used as Whisper input; test performance on device.", "Integrated • device test needed")
                         StatusCard(status)
                     }
                     else -> {
