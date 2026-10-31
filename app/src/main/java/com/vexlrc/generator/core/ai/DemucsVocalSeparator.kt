@@ -18,7 +18,7 @@ class DemucsVocalSeparator(context: android.content.Context) {
     private val overlap = chunkSize / 4
     private val stride = chunkSize - overlap
 
-    suspend fun separate(mono16k: FloatArray, model: File, onProgress: suspend (Int) -> Unit = {}): File {
+    suspend fun separate(mono16k: FloatArray, model: File, threads: Int = 4, onProgress: suspend (Int) -> Unit = {}): File {
         require(mono16k.isNotEmpty()) { "No audio samples to separate" }
         require(mono16k.size <= 16_000 * 5 * 60) { "Demucs is limited to 5 minutes per run on mobile" }
         val source = resample(mono16k, 16000, sampleRate)
@@ -30,7 +30,7 @@ class DemucsVocalSeparator(context: android.content.Context) {
         val chunk = FloatArray(chunkSize * 2)
         val env = OrtEnvironment.getEnvironment()
         val opts = OrtSession.SessionOptions().apply {
-            setIntraOpNumThreads(Runtime.getRuntime().availableProcessors().coerceIn(2, 4))
+            setIntraOpNumThreads(threads.coerceIn(1, Runtime.getRuntime().availableProcessors().coerceAtLeast(1)))
         }
         env.createSession(model.absolutePath, opts).use { session ->
             val inputName = session.inputNames.first()
