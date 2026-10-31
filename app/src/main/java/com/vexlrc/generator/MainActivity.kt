@@ -27,6 +27,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vexlrc.generator.core.lrc.LrcFormatter
+import com.vexlrc.generator.core.lrc.LrcValidator
+import com.vexlrc.generator.core.project.ExportHistoryStore
+import com.vexlrc.generator.core.project.ExportRecord
+import com.vexlrc.generator.core.project.LrcProject
+import com.vexlrc.generator.core.project.ProjectStore
+import org.json.JSONArray
+import org.json.JSONObject
+import java.util.UUID
 import com.vexlrc.generator.core.lrc.LyricLine
 import com.vexlrc.generator.core.lrc.LyricWord
 import com.vexlrc.generator.core.waveform.WaveformAudioDecoder
@@ -67,6 +75,17 @@ private fun VexLrcApp() {
     var enhanced by remember { mutableStateOf(false) }
     var nextId by remember { mutableIntStateOf(2) }
     var lines by remember { mutableStateOf(listOf(LineEdit(1, 0L, "Start writing your lyrics here"))) }
+    val projectStore = remember { ProjectStore(context.applicationContext) }
+    val exportStore = remember { ExportHistoryStore(context.applicationContext) }
+    var currentProjectId by remember { mutableStateOf<String?>(null) }
+    var projectName by remember { mutableStateOf("Untitled project") }
+    var projects by remember { mutableStateOf(emptyList<LrcProject>()) }
+    var exportHistory by remember { mutableStateOf(emptyList<ExportRecord>()) }
+    var pendingExportContent by remember { mutableStateOf("") }
+    var pendingExportName by remember { mutableStateOf("lyrics.lrc") }
+    var pendingExportEnhanced by remember { mutableStateOf(false) }
+    var renameProjectId by remember { mutableStateOf<String?>(null) }
+    var renameValue by remember { mutableStateOf("") }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
@@ -78,18 +97,40 @@ private fun VexLrcApp() {
             playing = false
             position = 0L
             duration = 0L
-            status = "Audio loaded"
+            status = "New project created"
+            projectName = audioName.substringBeforeLast('.', audioName).ifBlank { "Untitled project" }
+            currentProjectId = UUID.randomUUID().toString()
+            lines = listOf(LineEdit(1, 0L, ""))
+            nextId = 2
         }
     }
     val exporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
         if (uri != null) {
-            val output = makeLrc(lines, enhanced)
             runCatching {
                 val stream = context.contentResolver.openOutputStream(uri) ?: error("Cannot open output")
-                stream.bufferedWriter(Charsets.UTF_8).use { it.write(output) }
-            }.onSuccess { status = if (enhanced) "Enhanced LRC exported" else "Standard LRC exported" }
+                stream.bufferedWriter(Charsets.UTF_8).use { it.write(pendingExportContent) }
+                exportStore.add(ExportRecord(UUID.randomUUID().toString(), pendingExportName, pendingExportEnhanced, System.currentTimeMillis(), pendingExportContent))
+                exportHistory = exportStore.list()
+            }.onSuccess { status = if (pendingExportEnhanced) "Enhanced LRC exported and saved to history" else "Standard LRC exported and saved to history" }
                 .onFailure { status = "Export failed: " + (it.localizedMessage ?: "unknown error") }
         }
+    }
+
+    LaunchedEffect(Unit) {
+        projects = withContext(Dispatchers.IO) { projectStore.list() }
+        exportHistory = withContext(Dispatchers.IO) { exportStore.list() }
+    }
+
+    LaunchedEffect(audioUri, lines, duration, projectName, currentProjectId) {
+        val id = currentProjectId ?: return@LaunchedEffect
+        val uri = audioUri ?: return@LaunchedEffect
+        delay(650L)
+        val project = LrcProject(id, projectName.ifBlank { "Untitled project" }, uri.toString(), duration, System.currentTimeMillis(), encodeLines(lines))
+        runCatching {
+            withContext(Dispatchers.IO) { projectStore.save(project) }
+            projects = withContext(Dispatchers.IO) { projectStore.list() }
+            status = "Project saved"
+        }.onFailure { status = "Project save failed: " + (it.localizedMessage ?: "storage error") }
     }
 
     LaunchedEffect(audioUri) {
@@ -164,6 +205,10 @@ private fun VexLrcApp() {
                                 Text(audioName, color = Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Button(onClick = { picker.launch(arrayOf("audio/*")) }, modifier = Modifier.fillMaxWidth()) { Text("Choose audio file") }
                                 OutlinedButton(onClick = { tab = "Studio" }, modifier = Modifier.fillMaxWidth()) { Text("Open LRC Studio") }
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OutlinedButton(onClick = { projects = projectStore.list(); tab = "Projects" }, modifier = Modifier.weight(1f)) { Text("Projects") }
+                                    OutlinedButton(onClick = { exportHistory = exportStore.list(); tab = "History" }, modifier = Modifier.weight(1f)) { Text("Export history") }
+                                }
                             }
                         }
                         StatusCard(status)
@@ -171,7 +216,12 @@ private fun VexLrcApp() {
                     }
                     "Studio" -> {
                         Text("LRC Studio", fontSize = 25.sp, fontWeight = FontWeight.Bold)
-                        Text(audioName, color = Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(projectName + " • " + audioName, color = Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(if (currentProjectId == null) "No active project" else "Auto-save enabled", color = Muted, fontSize = 11.sp)
+                            Spacer(Modifier.weight(1f))
+                            TextButton(onClick = { projects = projectStore.list(); tab = "Projects" }) { Text("Project library") }
+                        }
                         Surface(color = SurfaceDark, shape = RoundedCornerShape(16.dp)) {
                             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -271,6 +321,15 @@ private fun VexLrcApp() {
                                     )
                                 }
                                 Divider()
+                                val issues = LrcValidator.validate(toLyricModels(lines), duration.takeIf { it > 0L })
+                                Text("Timestamp validation", fontWeight = FontWeight.Bold)
+                                Surface(color = if (issues.isEmpty()) Color(0xFF17251F) else Color(0xFF30231B), shape = RoundedCornerShape(10.dp)) {
+                                    Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text(if (issues.isEmpty()) "No timestamp issues found" else "${issues.size} issue(s) to review", color = if (issues.isEmpty()) Color(0xFF8DE0B0) else Color(0xFFFFC078), fontWeight = FontWeight.SemiBold)
+                                        issues.take(5).forEach { Text("Line ${it.lineIndex + 1}: ${it.message}", color = Muted, fontSize = 11.sp) }
+                                        if (issues.size > 5) Text("and ${issues.size - 5} more…", color = Muted, fontSize = 11.sp)
+                                    }
+                                }
                                 Text("Export format", fontWeight = FontWeight.Bold)
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     RadioButton(selected = !enhanced, onClick = { enhanced = false })
@@ -279,7 +338,12 @@ private fun VexLrcApp() {
                                     RadioButton(selected = enhanced, onClick = { enhanced = true })
                                     Text("Enhanced")
                                 }
-                                Button(onClick = { exporter.launch(if (enhanced) "lyrics.enhanced.lrc" else "lyrics.lrc") }, modifier = Modifier.fillMaxWidth()) {
+                                Button(onClick = {
+                                    pendingExportContent = makeLrc(lines, enhanced)
+                                    pendingExportEnhanced = enhanced
+                                    pendingExportName = if (enhanced) "lyrics.enhanced.lrc" else "lyrics.lrc"
+                                    exporter.launch(pendingExportName)
+                                }, modifier = Modifier.fillMaxWidth()) {
                                     Icon(Icons.Default.Download, null)
                                     Spacer(Modifier.width(8.dp))
                                     Text(if (enhanced) "Export Enhanced LRC" else "Export Standard LRC")
@@ -287,6 +351,62 @@ private fun VexLrcApp() {
                             }
                         }
                         StatusCard(status)
+                    }
+                    "Projects" -> {
+                        Text("Project Library", fontSize = 25.sp, fontWeight = FontWeight.Bold)
+                        Text("Projects are stored privately on this device.", color = Muted)
+                        Button(onClick = { picker.launch(arrayOf("audio/*")) }, modifier = Modifier.fillMaxWidth()) { Text("Create project from audio") }
+                        if (projects.isEmpty()) StatusCard("No saved projects yet.")
+                        projects.forEach { project ->
+                            Card(colors = CardDefaults.cardColors(containerColor = SurfaceDark)) {
+                                Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(project.name, fontWeight = FontWeight.Bold)
+                                    Text("Duration: ${project.durationMs / 1000}s • ${decodeLines(project.lyricsJson).size} lyric lines", color = Muted, fontSize = 11.sp)
+                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Button(onClick = {
+                                            runCatching {
+                                                val saved = projectStore.load(project.id) ?: error("Project not found")
+                                                currentProjectId = saved.id
+                                                projectName = saved.name
+                                                audioUri = saved.audioUri?.let(Uri::parse)
+                                                audioName = saved.audioUri?.let { Uri.parse(it).lastPathSegment?.substringAfterLast('/') } ?: "Audio unavailable"
+                                                duration = saved.durationMs
+                                                lines = decodeLines(saved.lyricsJson)
+                                                nextId = (lines.maxOfOrNull { it.id } ?: 0) + 1
+                                                tab = "Studio"
+                                                status = "Project opened"
+                                            }.onFailure { status = "Open failed: " + (it.localizedMessage ?: "error") }
+                                        }, modifier = Modifier.weight(1f)) { Text("Open") }
+                                        OutlinedButton(onClick = { renameProjectId = project.id; renameValue = project.name }) { Text("Rename") }
+                                        OutlinedButton(onClick = {
+                                            projectStore.delete(project.id)
+                                            if (currentProjectId == project.id) currentProjectId = null
+                                            projects = projectStore.list()
+                                            status = "Project deleted"
+                                        }) { Text("Delete") }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    "History" -> {
+                        Text("Export History", fontSize = 25.sp, fontWeight = FontWeight.Bold)
+                        Text("The last 50 successful exports are kept on this device.", color = Muted)
+                        if (exportHistory.isEmpty()) StatusCard("No exports yet.")
+                        exportHistory.forEach { record ->
+                            Card(colors = CardDefaults.cardColors(containerColor = SurfaceDark)) {
+                                Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(record.fileName, fontWeight = FontWeight.Bold)
+                                    Text((if (record.enhanced) "Enhanced LRC" else "Standard LRC") + " • " + record.content.length + " characters", color = Muted, fontSize = 11.sp)
+                                    OutlinedButton(onClick = {
+                                        pendingExportContent = record.content
+                                        pendingExportEnhanced = record.enhanced
+                                        pendingExportName = record.fileName
+                                        exporter.launch(record.fileName)
+                                    }, modifier = Modifier.fillMaxWidth()) { Text("Export again") }
+                                }
+                            }
+                        }
                     }
                     "Models" -> {
                         Text("Model Center", fontSize = 25.sp, fontWeight = FontWeight.Bold)
@@ -302,6 +422,28 @@ private fun VexLrcApp() {
                     }
                 }
             }
+        }
+        if (renameProjectId != null) {
+            AlertDialog(
+                onDismissRequest = { renameProjectId = null },
+                title = { Text("Rename project") },
+                text = { OutlinedTextField(value = renameValue, onValueChange = { renameValue = it }, singleLine = true, label = { Text("Project name") }) },
+                confirmButton = {
+                    TextButton(onClick = {
+                        val id = renameProjectId
+                        if (id != null && renameValue.isNotBlank()) {
+                            val saved = projectStore.load(id)
+                            if (saved != null) {
+                                projectStore.save(saved.copy(name = renameValue.trim(), updatedAtMs = System.currentTimeMillis()))
+                                if (currentProjectId == id) projectName = renameValue.trim()
+                                projects = projectStore.list()
+                            }
+                        }
+                        renameProjectId = null
+                    }) { Text("Save") }
+                },
+                dismissButton = { TextButton(onClick = { renameProjectId = null }) { Text("Cancel") } }
+            )
         }
     }
 }
@@ -346,17 +488,39 @@ private fun LineCard(
     }
 }
 
+private fun toLyricModels(lines: List<LineEdit>): List<LyricLine> = lines.map { line ->
+    val words = if (line.words.isNotEmpty()) line.words.map { LyricWord(it.text, it.timeMs) }
+    else line.text.trim().split(Regex("\\s+")).filter { it.isNotBlank() }.map { LyricWord(it, line.timeMs) }
+    LyricLine(line.timeMs, words)
+}
+
 private fun makeLrc(lines: List<LineEdit>, enhanced: Boolean): String {
-    val models = lines.sortedBy { it.timeMs }.map { line ->
-        val words = if (enhanced && line.words.isNotEmpty()) {
-            line.words.map { LyricWord(it.text, it.timeMs) }
-        } else {
-            line.text.trim().split(Regex("\\s+")).filter { it.isNotBlank() }.map { LyricWord(it, line.timeMs) }
-        }
-        LyricLine(line.timeMs, words)
-    }
+    val models = toLyricModels(lines)
     return if (enhanced) LrcFormatter.enhanced(models) else LrcFormatter.standard(models)
 }
+
+private fun encodeLines(lines: List<LineEdit>): String {
+    val array = JSONArray()
+    lines.forEach { line ->
+        val words = JSONArray()
+        line.words.forEach { word -> words.put(JSONObject().put("text", word.text).put("timeMs", word.timeMs)) }
+        array.put(JSONObject().put("id", line.id).put("timeMs", line.timeMs).put("text", line.text).put("words", words))
+    }
+    return array.toString()
+}
+
+private fun decodeLines(raw: String): List<LineEdit> = runCatching {
+    val array = JSONArray(raw)
+    (0 until array.length()).map { index ->
+        val item = array.getJSONObject(index)
+        val wordArray = item.optJSONArray("words") ?: JSONArray()
+        val words = (0 until wordArray.length()).map { wi ->
+            val word = wordArray.getJSONObject(wi)
+            WordEdit(word.optString("text"), word.optLong("timeMs"))
+        }
+        LineEdit(item.optInt("id", index + 1), item.optLong("timeMs"), item.optString("text"), words)
+    }
+}.getOrDefault(listOf(LineEdit(1, 0L, "")))
 
 private fun clock(ms: Long): String {
     val value = ms.coerceAtLeast(0L)
