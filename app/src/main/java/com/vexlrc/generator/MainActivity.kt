@@ -32,6 +32,7 @@ import com.vexlrc.generator.core.ai.AudioPcmDecoder
 import com.vexlrc.generator.core.ai.WhisperModelManager
 import com.vexlrc.generator.core.ai.WhisperNative
 import com.vexlrc.generator.core.ai.WhisperProgressListener
+import com.vexlrc.generator.core.ai.WhisperStageListener
 import com.vexlrc.generator.core.ai.WhisperTokenTiming
 import com.vexlrc.generator.core.ai.ForcedAlignmentModelManager
 import com.vexlrc.generator.core.ai.CtcForcedAlignmentRunner
@@ -444,6 +445,12 @@ private fun VexLrcApp() {
                                                                                 aiProgress = progress.coerceIn(0, 100) / 100f
                                                                                 aiProgressDeterminate = true
                                                                             }
+                                                                        }
+                                                                    },
+                                                                    WhisperStageListener { stage ->
+                                                                        coroutineScope.launch(Dispatchers.Main) {
+                                                                            aiProgressStage = stage
+                                                                            status = stage
                                                                         }
                                                                     }
                                                                 )
