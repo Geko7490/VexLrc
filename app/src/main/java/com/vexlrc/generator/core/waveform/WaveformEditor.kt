@@ -12,8 +12,10 @@ import androidx.compose.foundation.layout.weight
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -40,10 +42,20 @@ fun WaveformEditor(
     modifier: Modifier = Modifier
 ) {
     var zoom by remember { mutableFloatStateOf(1f) }
+    var viewStartMs by remember { mutableLongStateOf(0L) }
     val latestMarkers by rememberUpdatedState(markers)
     val latestOnSeek by rememberUpdatedState(onSeek)
     val latestOnMoveMarker by rememberUpdatedState(onMoveMarker)
     val duration = durationMs.coerceAtLeast(1L)
+    val visibleDuration = (duration / zoom).toLong().coerceAtLeast(1L)
+    LaunchedEffect(playheadMs, zoom, duration) {
+        val maxStart = (duration - visibleDuration).coerceAtLeast(0L)
+        if (playheadMs < viewStartMs || playheadMs > viewStartMs + visibleDuration) {
+            viewStartMs = (playheadMs - visibleDuration / 2L).coerceIn(0L, maxStart)
+        } else {
+            viewStartMs = viewStartMs.coerceIn(0L, maxStart)
+        }
+    }
 
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -52,12 +64,12 @@ fun WaveformEditor(
             Text("${zoom.toInt()}×", color = Color(0xFFB9A6CE))
         }
         Canvas(
-            Modifier.fillMaxWidth().height(116.dp).pointerInput(duration, peaks.size, zoom) {
+            Modifier.fillMaxWidth().height(116.dp).pointerInput(duration, peaks.size, zoom, viewStartMs) {
                 var selectedMarker: Int? = null
                 detectDragGestures(
                     onDragStart = { point ->
                         val visibleDuration = (duration / zoom).toLong().coerceAtLeast(1L)
-                        val windowStart = (playheadMs - visibleDuration / 2L).coerceIn(0L, (duration - visibleDuration).coerceAtLeast(0L))
+                        val windowStart = viewStartMs
                         val touchedTime = windowStart + (point.x / size.width.coerceAtLeast(1f) * visibleDuration).toLong()
                         val closest = latestMarkers.value.minByOrNull { abs(it.timeMs - touchedTime) }
                         selectedMarker = closest?.takeIf {
@@ -66,7 +78,7 @@ fun WaveformEditor(
                     },
                     onDrag = { change, _ ->
                         val visibleDuration = (duration / zoom).toLong().coerceAtLeast(1L)
-                        val windowStart = (playheadMs - visibleDuration / 2L).coerceIn(0L, (duration - visibleDuration).coerceAtLeast(0L))
+                        val windowStart = viewStartMs
                         val ratio = (change.position.x / size.width.coerceAtLeast(1f)).coerceIn(0f, 1f)
                         val time = (windowStart + ratio * visibleDuration).toLong().coerceIn(0L, duration)
                         val markerId = selectedMarker
@@ -80,7 +92,7 @@ fun WaveformEditor(
         ) {
             val centerY = size.height / 2f
             val visibleDuration = (duration / zoom).toLong().coerceAtLeast(1L)
-            val windowStart = (playheadMs - visibleDuration / 2L).coerceIn(0L, (duration - visibleDuration).coerceAtLeast(0L))
+            val windowStart = viewStartMs
             val windowEnd = windowStart + visibleDuration
             drawLine(Color(0xFF51475E), Offset(0f, centerY), Offset(size.width, centerY), 1.dp.toPx())
 
