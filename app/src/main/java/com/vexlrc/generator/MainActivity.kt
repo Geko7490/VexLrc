@@ -427,8 +427,11 @@ private fun VexLrcApp() {
                                                             val pcm = withContext(Dispatchers.IO) { AudioPcmDecoder.decode(context.applicationContext, selectedUri) }
                                                             aiProgressStage = "Whisper transcription"
                                                             aiProgress = 0f
-                                                            aiProgressDeterminate = true
-                                                            status = "Whisper is transcribing…"
+                                                            // Whisper reports progress between audio windows, not during every
+                                                            // expensive encoder pass. Keep an indeterminate indicator until the
+                                                            // first positive engine callback arrives instead of displaying 0%.
+                                                            aiProgressDeterminate = false
+                                                            status = "Whisper is loading and transcribing…"
                                                             val raw = withContext(Dispatchers.Default) {
                                                                 WhisperNative.transcribe(
                                                                     modelFile.absolutePath,
@@ -436,8 +439,11 @@ private fun VexLrcApp() {
                                                                     selectedWhisperLanguage,
                                                                     performanceThreads,
                                                                     WhisperProgressListener { progress ->
-                                                                        coroutineScope.launch(Dispatchers.Main) {
-                                                                            aiProgress = progress.coerceIn(0, 100) / 100f
+                                                                        if (progress > 0) {
+                                                                            coroutineScope.launch(Dispatchers.Main) {
+                                                                                aiProgress = progress.coerceIn(0, 100) / 100f
+                                                                                aiProgressDeterminate = true
+                                                                            }
                                                                         }
                                                                     }
                                                                 )
