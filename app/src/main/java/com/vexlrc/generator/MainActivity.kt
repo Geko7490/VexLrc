@@ -28,6 +28,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vexlrc.generator.core.lrc.LrcFormatter
 import com.vexlrc.generator.core.lrc.LrcValidator
+import com.vexlrc.generator.core.ai.AudioPcmDecoder
+import com.vexlrc.generator.core.ai.WhisperModelManager
+import com.vexlrc.generator.core.ai.WhisperNative
+import com.vexlrc.generator.core.ai.WhisperTokenTiming
 import com.vexlrc.generator.core.project.ExportHistoryStore
 import com.vexlrc.generator.core.project.ExportRecord
 import com.vexlrc.generator.core.project.LrcProject
@@ -77,6 +81,14 @@ private fun VexLrcApp() {
     var lines by remember { mutableStateOf(listOf(LineEdit(1, 0L, "Start writing your lyrics here"))) }
     val projectStore = remember { ProjectStore(context.applicationContext) }
     val exportStore = remember { ExportHistoryStore(context.applicationContext) }
+    val whisperModels = remember { WhisperModelManager(context.applicationContext) }
+    val coroutineScope = rememberCoroutineScope()
+    var installedModels by remember { mutableStateOf(whisperModels.installedIds()) }
+    var selectedWhisperModel by remember { mutableStateOf("tiny") }
+    var selectedWhisperLanguage by remember { mutableStateOf("auto") }
+    var downloadingModelId by remember { mutableStateOf<String?>(null) }
+    var modelDownloadProgress by remember { mutableFloatStateOf(0f) }
+    var aiBusy by remember { mutableStateOf(false) }
     var currentProjectId by remember { mutableStateOf<String?>(null) }
     var projectName by remember { mutableStateOf("Untitled project") }
     var projects by remember { mutableStateOf(emptyList<LrcProject>()) }
@@ -119,6 +131,7 @@ private fun VexLrcApp() {
     LaunchedEffect(Unit) {
         projects = withContext(Dispatchers.IO) { projectStore.list() }
         exportHistory = withContext(Dispatchers.IO) { exportStore.list() }
+        installedModels = withContext(Dispatchers.IO) { whisperModels.installedIds() }
         val recent = projects.firstOrNull()
         if (recent != null) {
             currentProjectId = recent.id
@@ -223,7 +236,7 @@ private fun VexLrcApp() {
                             }
                         }
                         StatusCard(status)
-                        Text("AI transcription and automatic alignment are not implemented yet.", color = Muted, fontSize = 12.sp)
+                        Text("Whisper models can be downloaded in Model Center for offline Turkish and English transcription.", color = Muted, fontSize = 12.sp)
                     }
                     "Studio" -> {
                         Text("LRC Studio", fontSize = 25.sp, fontWeight = FontWeight.Bold)
@@ -332,6 +345,67 @@ private fun VexLrcApp() {
                                     )
                                 }
                                 Divider()
+                                Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF211B2B))) {
+                                    Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("LOCAL AI TRANSCRIPTION", color = Purple, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        Text("Whisper.cpp • Turkish / English • offline after model download", color = Muted, fontSize = 12.sp)
+                                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            listOf("auto" to "Auto", "tr" to "Türkçe", "en" to "English").forEach { (code, label) ->
+                                                FilterChip(selected = selectedWhisperLanguage == code, onClick = { selectedWhisperLanguage = code }, label = { Text(label) })
+                                            }
+                                        }
+                                        Button(
+                                            onClick = {
+                                                val selectedUri = audioUri
+                                                val modelFile = whisperModels.fileFor(selectedWhisperModel)
+                                                if (selectedUri == null) {
+                                                    status = "Choose an audio file first"
+                                                } else if (modelFile == null || !whisperModels.isInstalled(selectedWhisperModel)) {
+                                                    status = "Download a Whisper model in Model Center first"
+                                                    tab = "Models"
+                                                } else {
+                                                    coroutineScope.launch {
+                                                        aiBusy = true
+                                                        status = "Decoding audio for Whisper…"
+                                                        try {
+                                                            val pcm = withContext(Dispatchers.IO) { AudioPcmDecoder.decode(context.applicationContext, selectedUri) }
+                                                            status = "Whisper is transcribing…"
+                                                            val raw = withContext(Dispatchers.Default) {
+                                                                WhisperNative.transcribe(
+                                                                    modelFile.absolutePath,
+                                                                    pcm,
+                                                                    selectedWhisperLanguage,
+                                                                    Runtime.getRuntime().availableProcessors().coerceIn(2, 4)
+                                                                )
+                                                            }
+                                                            val result = WhisperNative.parseResult(raw)
+                                                            if (result.segments.isEmpty()) error("Whisper returned no speech segments")
+                                                            val firstId = nextId
+                                                            val generated = result.segments.mapIndexed { index, segment ->
+                                                                LineEdit(firstId + index, segment.startMs, segment.text.trim(), tokenTimingsToWords(segment.tokens))
+                                                            }
+                                                            lines = generated
+                                                            nextId = firstId + generated.size
+                                                            status = "Transcription complete • ${generated.size} segments"
+                                                        } catch (error: Exception) {
+                                                            status = "Whisper failed: " + (error.localizedMessage ?: "unknown error")
+                                                        } finally {
+                                                            aiBusy = false
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                            enabled = !aiBusy,
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            if (aiBusy) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                                            else Icon(Icons.Default.AutoAwesome, null)
+                                            Spacer(Modifier.width(8.dp))
+                                            Text(if (aiBusy) "Processing audio…" else "Transcribe with Whisper")
+                                        }
+                                        Text("Token timestamps are experimental and are not a dedicated forced aligner.", color = Muted, fontSize = 10.sp)
+                                    }
+                                }
                                 val issues = LrcValidator.validate(toLyricModels(lines), duration.takeIf { it > 0L })
                                 Text("Timestamp validation", fontWeight = FontWeight.Bold)
                                 Surface(color = if (issues.isEmpty()) Color(0xFF17251F) else Color(0xFF30231B), shape = RoundedCornerShape(10.dp)) {
@@ -421,10 +495,74 @@ private fun VexLrcApp() {
                     }
                     "Models" -> {
                         Text("Model Center", fontSize = 25.sp, fontWeight = FontWeight.Bold)
-                        Text("AI model downloads will be added in a future update.", color = Muted)
-                        ModelCard("Whisper.cpp", "Speech-to-text transcription", "Integration pending")
-                        ModelCard("Forced Alignment", "Word-level timestamps", "Integration pending")
-                        ModelCard("Demucs", "Optional vocal separation", "Integration pending")
+                        Text("Download models once, then run supported inference locally without sending audio to a server.", color = Muted)
+                        Text("WHISPER • SPEECH TO TEXT", color = Purple, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        whisperModels.catalog.forEach { model ->
+                            val installed = model.id in installedModels
+                            Card(colors = CardDefaults.cardColors(containerColor = SurfaceDark)) {
+                                Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Column(Modifier.weight(1f)) {
+                                            Text(model.title, fontWeight = FontWeight.Bold)
+                                            Text(model.description, color = Muted, fontSize = 11.sp)
+                                            Text("About ${model.approximateBytes / (1024 * 1024)} MB", color = Muted, fontSize = 10.sp)
+                                        }
+                                        if (installed) Text("INSTALLED", color = Color(0xFF8DE0B0), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                    if (downloadingModelId == model.id) {
+                                        LinearProgressIndicator(progress = { modelDownloadProgress }, modifier = Modifier.fillMaxWidth())
+                                        Text("Downloading… ${(modelDownloadProgress * 100).toInt()}%", color = Muted, fontSize = 11.sp)
+                                    }
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        if (installed) {
+                                            OutlinedButton(onClick = { selectedWhisperModel = model.id }, modifier = Modifier.weight(1f)) {
+                                                Text(if (selectedWhisperModel == model.id) "Selected" else "Use this model")
+                                            }
+                                            TextButton(onClick = {
+                                                whisperModels.delete(model.id)
+                                                installedModels = whisperModels.installedIds()
+                                                if (selectedWhisperModel == model.id) selectedWhisperModel = "tiny"
+                                                status = "${model.title} deleted"
+                                            }) { Text("Delete") }
+                                        } else {
+                                            Button(
+                                                onClick = {
+                                                    coroutineScope.launch {
+                                                        downloadingModelId = model.id
+                                                        modelDownloadProgress = 0f
+                                                        status = "Downloading ${model.title}…"
+                                                        try {
+                                                            whisperModels.download(model.id) { downloaded, total ->
+                                                                withContext(Dispatchers.Main) {
+                                                                    modelDownloadProgress = (downloaded.toFloat() / total.coerceAtLeast(1L)).coerceIn(0f, 1f)
+                                                                }
+                                                            }
+                                                            installedModels = whisperModels.installedIds()
+                                                            selectedWhisperModel = model.id
+                                                            status = "${model.title} downloaded and ready"
+                                                        } catch (error: Exception) {
+                                                            status = "Model download failed: " + (error.localizedMessage ?: "network error")
+                                                        } finally {
+                                                            downloadingModelId = null
+                                                        }
+                                                    }
+                                                },
+                                                enabled = downloadingModelId == null,
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) { Text("Download model") }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Divider()
+                        Text("WORD TIMING", color = Purple, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        ModelCard("Whisper token timestamps", "Experimental token-level timestamps are included with transcription. Review and correct them in Studio.", "Available with Whisper • experimental")
+                        ModelCard("Dedicated Forced Alignment", "A separate transcript-conditioned aligner is not bundled yet. Whisper token timing must not be treated as guaranteed forced alignment.", "Not integrated")
+                        Divider()
+                        Text("VOCAL SEPARATION", color = Purple, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        ModelCard("Demucs", "The Android ONNX inference pipeline, audio chunking and memory-safe stem reconstruction still need device validation. No unusable multi-hundred-MB model is offered for download.", "Not available yet")
+                        StatusCard(status)
                     }
                     else -> {
                         Text("Settings", fontSize = 25.sp, fontWeight = FontWeight.Bold)
@@ -518,6 +656,33 @@ private fun encodeLines(lines: List<LineEdit>): String {
         array.put(JSONObject().put("id", line.id).put("timeMs", line.timeMs).put("text", line.text).put("words", words))
     }
     return array.toString()
+}
+
+private fun tokenTimingsToWords(tokens: List<WhisperTokenTiming>): List<WordEdit> {
+    val result = mutableListOf<WordEdit>()
+    val current = StringBuilder()
+    var startMs = 0L
+    var endMs = 0L
+    fun flush() {
+        val word = current.toString().trim()
+        if (word.isNotEmpty()) result += WordEdit(word, startMs)
+        current.clear()
+    }
+    tokens.forEach { token ->
+        val value = token.text.replace("▁", " ")
+        val parts = Regex("(?<=\\s)|(?=\\s)").split(value)
+        parts.forEach { part ->
+            if (part.isBlank()) {
+                flush()
+            } else {
+                if (current.isEmpty()) startMs = token.startMs
+                current.append(part)
+                endMs = maxOf(endMs, token.endMs)
+            }
+        }
+    }
+    flush()
+    return result
 }
 
 private fun decodeLines(raw: String): List<LineEdit> = runCatching {
