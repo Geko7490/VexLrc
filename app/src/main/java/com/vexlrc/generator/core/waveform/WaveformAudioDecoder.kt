@@ -113,7 +113,6 @@ object WaveformAudioDecoder {
                         codec.releaseOutputBuffer(outputIndex, false)
                     }
                 }
-                if (expectedFrames == 0L && frameCursor / 2048L >= bucketCount) outputEnded = true
             }
             return peaks.toList()
         } finally {
