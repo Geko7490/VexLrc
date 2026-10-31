@@ -17,6 +17,7 @@ data class AlignedWord(val text: String, val startMs: Long, val endMs: Long)
 object ForcedAlignmentEngine {
     fun align(context: Context, modelFile: File, vocabFile: File, pcm16k: FloatArray, transcript: String): List<AlignedWord> {
         require(pcm16k.size >= 400) { "Audio is too short for forced alignment" }
+        require(pcm16k.size <= 16_000 * 5 * 60) { "Forced alignment is limited to five minutes per run on mobile" }
         require(transcript.isNotBlank()) { "Enter the lyrics before alignment" }
         val vocabJson = JSONObject(vocabFile.readText())
         val vocab = mutableMapOf<String, Int>()
@@ -24,12 +25,13 @@ object ForcedAlignmentEngine {
         while (keys.hasNext()) { val key = keys.next(); vocab[key] = vocabJson.getInt(key) }
         val labels = mutableListOf<Int>()
         val languageLocale = if (modelFile.name.startsWith("tr-")) Locale.forLanguageTag("tr") else Locale.US
-        val chars = transcript.lowercase(languageLocale).map { ch ->
-            val token = if (ch.isWhitespace()) "|" else ch.toString()
-            val id = vocab[token] ?: error("Aligner vocabulary does not contain '$ch'")
-            token to id
+        val chars = transcript.map { original ->
+            val token = if (original.isWhitespace()) "|" else original.toString().lowercase(languageLocale)
+            require(token.length == 1) { "Unsupported character in transcript: '$original'" }
+            val id = vocab[token] ?: vocab["<unk>"] ?: error("Aligner vocabulary does not contain '$original'")
+            token to original
         }
-        chars.forEach { labels += it.second }
+        chars.forEach { pair -> labels += (vocab[pair.first] ?: vocab["<unk>"] ?: 0) }
         require(labels.isNotEmpty()) { "Transcript has no alignable characters" }
         val mean = pcm16k.average().toFloat()
         var variance = 0.0
@@ -108,7 +110,7 @@ object ForcedAlignmentEngine {
                                     if (first < 0) first = span[0]
                                     last = maxOf(last, span[1])
                                 }
-                                current.append(pair.first)
+                                current.append(pair.second)
                             }
                         }
                         flush()
