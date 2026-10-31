@@ -6,6 +6,8 @@ import ai.onnxruntime.OrtSession
 import java.io.File
 import java.io.RandomAccessFile
 import java.nio.FloatBuffer
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import kotlin.math.floor
 
 /** Vocals-only Demucs inference. Input is mono duplicated to stereo for lyric transcription. */
@@ -41,7 +43,8 @@ class DemucsVocalSeparator(context: android.content.Context) {
                     chunk[i] = sample
                     chunk[chunkSize + i] = sample
                 }
-                val tensor = OnnxTensor.createTensor(env, FloatBuffer.wrap(chunk), longArrayOf(1, 2, chunkSize.toLong()))
+                val inputBuffer = ByteBuffer.allocateDirect(chunk.size * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply { put(chunk); rewind() }
+                val tensor = OnnxTensor.createTensor(env, inputBuffer, longArrayOf(1, 2, chunkSize.toLong()))
                 tensor.use {
                     session.run(mapOf(inputName to tensor)).use { result ->
                         val output = result[outputName] as OnnxTensor
