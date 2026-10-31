@@ -31,7 +31,7 @@ object AudioPcmDecoder {
             }
             require(track >= 0 && format != null) { "No audio track found" }
             val sourceDuration = if (format.containsKey(MediaFormat.KEY_DURATION)) format.getLong(MediaFormat.KEY_DURATION) / 1000L else 0L
-            require(sourceDuration <= 0L || sourceDuration <= MAX_AUDIO_MS) { "Audio is longer than 20 minutes; split it into shorter sections" }
+            require(sourceDuration <= 0L || sourceDuration <= MAX_AUDIO_MS) { "Audio is longer than 10 minutes; split it into shorter sections" }
             extractor.selectTrack(track)
             codec = MediaCodec.createDecoderByType(format.getString(MediaFormat.KEY_MIME)!!)
             codec.configure(format, null, null, 0)
@@ -90,7 +90,7 @@ object AudioPcmDecoder {
                                 }
                                 mono.add((sum / channels).coerceIn(-1f, 1f))
                                 if (mono.size.toLong() * 1000L / rate > MAX_AUDIO_MS) {
-                                    error("Decoded audio exceeds the 20-minute safety limit")
+                                    error("Decoded audio exceeds the 10-minute safety limit")
                                 }
                             }
                         }
@@ -99,7 +99,7 @@ object AudioPcmDecoder {
                     }
                 }
             }
-            require(mono.isNotEmpty()) { "No decoded audio samples" }
+            require(mono.size > 0) { "No decoded audio samples" }
             val source = mono.toArray()
             if (rate == TARGET_RATE) return source
             val outputCount = floor(source.size.toDouble() * TARGET_RATE / rate).toInt().coerceAtLeast(1)
