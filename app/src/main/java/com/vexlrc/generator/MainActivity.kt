@@ -33,7 +33,7 @@ import com.vexlrc.generator.core.ai.WhisperModelManager
 import com.vexlrc.generator.core.ai.WhisperNative
 import com.vexlrc.generator.core.ai.WhisperTokenTiming
 import com.vexlrc.generator.core.ai.ForcedAlignmentModelManager
-import com.vexlrc.generator.core.ai.ForcedAlignmentEngine
+import com.vexlrc.generator.core.ai.CtcForcedAlignmentRunner
 import com.vexlrc.generator.core.ai.DemucsModelManager
 import com.vexlrc.generator.core.ai.DemucsVocalSeparator
 import com.vexlrc.generator.core.project.ExportHistoryStore
