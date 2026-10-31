@@ -10,7 +10,13 @@ class LrcValidatorTest {
     }
 
     @Test fun reportsOutOfRangeAndUnorderedWords() {
-        val lines = listOf(LyricLine(1000, listOf(LyricWord("late", 4000), LyricWord("early", 500))))
+        val lines = listOf(
+            LyricLine(1000, listOf(
+                LyricWord("early", 500),
+                LyricWord("late", 4000),
+                LyricWord("middle", 3000)
+            ))
+        )
         val issues = LrcValidator.validate(lines, 3000)
         assertTrue(issues.any { it.message.contains("beyond audio duration") })
         assertTrue(issues.any { it.message.contains("not ordered") })
