@@ -18,11 +18,12 @@ class DemucsVocalSeparator(context: android.content.Context) {
     private val overlap = chunkSize / 4
     private val stride = chunkSize - overlap
 
-    fun separate(mono16k: FloatArray, model: File): File {
+    suspend fun separate(mono16k: FloatArray, model: File, onProgress: suspend (Int) -> Unit = {}): File {
         require(mono16k.isNotEmpty()) { "No audio samples to separate" }
         require(mono16k.size <= 16_000 * 5 * 60) { "Demucs is limited to 5 minutes per run on mobile" }
         val source = resample(mono16k, 16000, sampleRate)
         val total = source.size
+        onProgress(0)
         val left = FloatArray(total)
         val right = FloatArray(total)
         val weights = FloatArray(total)
@@ -75,6 +76,7 @@ class DemucsVocalSeparator(context: android.content.Context) {
                     }
                 }
                 offset += stride
+                onProgress(((offset.toDouble() / total.coerceAtLeast(1)) * 100.0).toInt().coerceIn(0, 100))
             }
         }
         val output = File(outputDirectory, "vocal-${System.currentTimeMillis()}.wav")
