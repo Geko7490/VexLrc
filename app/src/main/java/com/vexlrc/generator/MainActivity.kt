@@ -127,6 +127,13 @@ private fun VexLrcApp() {
     var selectedWhisperLanguage by remember { mutableStateOf("auto") }
     var downloadingModelId by remember { mutableStateOf<String?>(null) }
     var modelDownloadProgress by remember { mutableFloatStateOf(0f) }
+    val performancePrefs = remember { context.getSharedPreferences("performance", android.content.Context.MODE_PRIVATE) }
+    var performanceMode by remember { mutableStateOf(performancePrefs.getString("mode", "mid") ?: "mid") }
+    val performanceThreads = when (performanceMode) {
+        "low" -> 2
+        "high" -> Runtime.getRuntime().availableProcessors().coerceAtLeast(2)
+        else -> minOf(4, Runtime.getRuntime().availableProcessors()).coerceAtLeast(2)
+    }
     var aiBusy by remember { mutableStateOf(false) }
     var aiProgress by remember { mutableFloatStateOf(0f) }
     var aiProgressStage by remember { mutableStateOf("") }
@@ -427,7 +434,7 @@ private fun VexLrcApp() {
                                                                     modelFile.absolutePath,
                                                                     pcm,
                                                                     selectedWhisperLanguage,
-                                                                    Runtime.getRuntime().availableProcessors().coerceIn(2, 4),
+                                                                    performanceThreads,
                                                                     WhisperProgressListener { progress ->
                                                                         coroutineScope.launch(Dispatchers.Main) {
                                                                             aiProgress = progress.coerceIn(0, 100) / 100f
@@ -761,6 +768,26 @@ private fun VexLrcApp() {
                     }
                     else -> {
                         Text("Settings", fontSize = 25.sp, fontWeight = FontWeight.Bold)
+                        Text("PROCESSING POWER", color = Purple, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text("Choose how much CPU power local AI processing can use. Higher modes may increase heat, battery drain and processing speed.", color = Muted, fontSize = 12.sp)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf("low" to "Low", "mid" to "Mid", "high" to "High").forEach { (mode, label) ->
+                                FilterChip(
+                                    selected = performanceMode == mode,
+                                    onClick = {
+                                        performanceMode = mode
+                                        performancePrefs.edit().putString("mode", mode).apply()
+                                    },
+                                    label = { Text(label) },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+                        ModelCard(
+                            "CPU allocation",
+                            "Whisper and Demucs use up to $performanceThreads CPU threads in this mode. Changes apply to the next run.",
+                            when (performanceMode) { "low" -> "Battery-friendly"; "high" -> "Maximum available CPU threads"; else -> "Balanced" }
+                        )
                         ModelCard("Privacy", "Audio processing stays on device", "Offline-first")
                         ModelCard("App version", "VEX LRC Generator", "1.1.0 • Editor upgrade")
                     }
