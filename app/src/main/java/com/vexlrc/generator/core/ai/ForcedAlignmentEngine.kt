@@ -8,6 +8,7 @@ import org.json.JSONObject
 import java.io.File
 import java.nio.FloatBuffer
 import kotlin.math.sqrt
+import java.util.Locale
 
 data class AlignedWord(val text: String, val startMs: Long, val endMs: Long)
 
@@ -20,7 +21,8 @@ object ForcedAlignmentEngine {
         val keys = vocabJson.keys()
         while (keys.hasNext()) { val key = keys.next(); vocab[key] = vocabJson.getInt(key) }
         val labels = mutableListOf<Int>()
-        val chars = transcript.lowercase().map { ch ->
+        val languageLocale = if (modelFile.name.startsWith("tr-")) Locale.forLanguageTag("tr") else Locale.US
+        val chars = transcript.lowercase(languageLocale).map { ch ->
             val token = if (ch.isWhitespace()) "|" else ch.toString()
             val id = vocab[token] ?: error("Aligner vocabulary does not contain '$ch'")
             token to id
@@ -32,7 +34,7 @@ object ForcedAlignmentEngine {
         pcm16k.forEach { variance += (it - mean) * (it - mean) }
         val std = sqrt(variance / pcm16k.size).toFloat().coerceAtLeast(1e-5f)
         val normalized = FloatArray(pcm16k.size) { (pcm16k[it] - mean) / std }
-        val blank = vocab["<pad>"] ?: 0
+        val blank = 0
         val states = IntArray(labels.size * 2 + 1) { index -> if (index % 2 == 0) blank else labels[index / 2] }
         val env = OrtEnvironment.getEnvironment()
         val options = OrtSession.SessionOptions().apply {
