@@ -46,6 +46,7 @@ import com.vexlrc.generator.core.waveform.WaveformEditor
 import com.vexlrc.generator.core.waveform.WaveformMarker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private val Purple = Color(0xFFA855F7)
