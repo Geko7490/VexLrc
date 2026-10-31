@@ -22,4 +22,19 @@ class LrcValidatorTest {
         assertTrue(issues.any { it.message.contains("not ordered") })
         assertTrue(issues.any { it.message.contains("before its lyric line") })
     }
+
+    @Test fun reportsUnorderedLineTimestamps() {
+        val lines = listOf(
+            LyricLine(2000, listOf(LyricWord("later", 2000))),
+            LyricLine(1000, listOf(LyricWord("earlier", 1000)))
+        )
+        assertTrue(LrcValidator.validate(lines, 3000).any { it.message.contains("Line timestamps are not ordered") })
+    }
+
+    @Test fun reportsEveryWordBeforeItsLineStart() {
+        val lines = listOf(
+            LyricLine(2000, listOf(LyricWord("first", 2000), LyricWord("too early", 1500)))
+        )
+        assertTrue(LrcValidator.validate(lines, 3000).any { it.message.contains("Word starts before its lyric line") })
+    }
 }
