@@ -1,6 +1,7 @@
 package com.vexlrc.generator
 
 import android.media.MediaPlayer
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -28,7 +29,12 @@ import androidx.compose.ui.unit.sp
 import com.vexlrc.generator.core.lrc.LrcFormatter
 import com.vexlrc.generator.core.lrc.LyricLine
 import com.vexlrc.generator.core.lrc.LyricWord
+import com.vexlrc.generator.core.waveform.WaveformAudioDecoder
+import com.vexlrc.generator.core.waveform.WaveformEditor
+import com.vexlrc.generator.core.waveform.WaveformMarker
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
 private val Purple = Color(0xFFA855F7)
 private val Bg = Color(0xFF0F0F13)
@@ -55,6 +61,8 @@ private fun VexLrcApp() {
     var playing by remember { mutableStateOf(false) }
     var duration by remember { mutableLongStateOf(0L) }
     var position by remember { mutableLongStateOf(0L) }
+    var waveform by remember { mutableStateOf<List<Float>>(emptyList()) }
+    var waveformLoading by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("Ready") }
     var enhanced by remember { mutableStateOf(false) }
     var nextId by remember { mutableIntStateOf(2) }
@@ -81,6 +89,35 @@ private fun VexLrcApp() {
                 stream.bufferedWriter(Charsets.UTF_8).use { it.write(output) }
             }.onSuccess { status = if (enhanced) "Enhanced LRC exported" else "Standard LRC exported" }
                 .onFailure { status = "Export failed: " + (it.localizedMessage ?: "unknown error") }
+        }
+    }
+
+    LaunchedEffect(audioUri) {
+        val selectedUri = audioUri
+        waveform = emptyList()
+        if (selectedUri != null) {
+            waveformLoading = true
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    val retriever = MediaMetadataRetriever()
+                    val audioDuration = try {
+                        retriever.setDataSource(context, selectedUri)
+                        retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+                    } finally {
+                        runCatching { retriever.release() }
+                    }
+                    val peaks = WaveformAudioDecoder.decode(context.applicationContext, selectedUri, 1400)
+                    audioDuration to peaks
+                }
+                if (result.first > 0L) duration = result.first
+                waveform = result.second
+                status = if (waveform.isNotEmpty()) "Waveform ready" else "Audio loaded; waveform is empty"
+            } catch (error: Exception) {
+                waveform = emptyList()
+                status = "Waveform unavailable: " + (error.localizedMessage ?: "decoder error")
+            } finally {
+                waveformLoading = false
+            }
         }
     }
 
@@ -171,6 +208,24 @@ private fun VexLrcApp() {
                                     valueRange = 0f..duration.coerceAtLeast(1L).toFloat(),
                                     enabled = player != null
                                 )
+                                if (waveformLoading) {
+                                    Text("Analyzing audio waveform…", color = Muted, fontSize = 12.sp)
+                                } else if (waveform.isNotEmpty() && duration > 0L) {
+                                    WaveformEditor(
+                                        peaks = waveform,
+                                        durationMs = duration,
+                                        playheadMs = position,
+                                        markers = lines.map { WaveformMarker(it.id, it.timeMs) },
+                                        onSeek = { time ->
+                                            position = time
+                                            player?.seekTo(time.toInt())
+                                        },
+                                        onMoveMarker = { markerId, time ->
+                                            lines = lines.map { line -> if (line.id == markerId) line.copy(timeMs = time) else line }
+                                        },
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     OutlinedButton(onClick = { player?.let { it.seekTo((it.currentPosition - 5000).coerceAtLeast(0)); position = it.currentPosition.toLong() } }, modifier = Modifier.weight(1f)) { Text("−5 sec") }
                                     OutlinedButton(onClick = { player?.let { it.seekTo((it.currentPosition + 5000).coerceAtMost(it.duration)); position = it.currentPosition.toLong() } }, modifier = Modifier.weight(1f)) { Text("+5 sec") }
