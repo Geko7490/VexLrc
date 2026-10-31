@@ -8,6 +8,19 @@
 #define TAG "VexWhisper"
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 
+struct ProgressBridge {
+    JNIEnv *env;
+    jobject listener;
+    jmethodID method;
+};
+
+static void whisperProgressCallback(whisper_context *, whisper_state *, int progress, void * user_data) {
+    auto * bridge = static_cast<ProgressBridge *>(user_data);
+    if (!bridge || !bridge->env || !bridge->listener || !bridge->method) return;
+    bridge->env->CallVoidMethod(bridge->listener, bridge->method, static_cast<jint>(progress));
+    if (bridge->env->ExceptionCheck()) bridge->env->ExceptionClear();
+}
+
 static std::string jsonEscape(const char *value) {
     std::ostringstream out;
     const unsigned char *p = reinterpret_cast<const unsigned char *>(value ? value : "");
@@ -33,7 +46,7 @@ extern "C"
 JNIEXPORT jstring JNICALL
 Java_com_vexlrc_generator_core_ai_WhisperNative_transcribe(
         JNIEnv *env, jobject,
-        jstring modelPath, jfloatArray audio, jstring language, jint threads) {
+        jstring modelPath, jfloatArray audio, jstring language, jint threads, jobject progressListener) {
     const char *model = env->GetStringUTFChars(modelPath, nullptr);
     const char *lang = env->GetStringUTFChars(language, nullptr);
     whisper_context_params contextParams = whisper_context_default_params();
@@ -57,6 +70,14 @@ Java_com_vexlrc_generator_core_ai_WhisperNative_transcribe(
     params.n_threads = threads > 0 ? threads : 2;
     params.no_context = true;
     params.token_timestamps = true;
+    ProgressBridge bridge { env, progressListener, nullptr };
+    if (progressListener) {
+        jclass listenerClass = env->GetObjectClass(progressListener);
+        bridge.method = env->GetMethodID(listenerClass, "onProgress", "(I)V");
+        params.progress_callback = whisperProgressCallback;
+        params.progress_callback_user_data = &bridge;
+        env->DeleteLocalRef(listenerClass);
+    }
 
     const int result = whisper_full(ctx, params, samples, sampleCount);
     env->ReleaseFloatArrayElements(audio, samples, JNI_ABORT);
