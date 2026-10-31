@@ -12,9 +12,7 @@ import java.nio.ByteOrder
 import kotlin.math.sqrt
 import java.util.Locale
 
-data class AlignedWord(val text: String, val startMs: Long, val endMs: Long)
-
-object ForcedAlignmentEngine {
+object CtcForcedAlignmentRunner {
     fun align(context: Context, modelFile: File, vocabFile: File, pcm16k: FloatArray, transcript: String): List<AlignedWord> {
         require(pcm16k.size >= 400) { "Audio is too short for forced alignment" }
         require(pcm16k.size <= 16_000 * 5 * 60) { "Forced alignment is limited to five minutes per run on mobile" }
