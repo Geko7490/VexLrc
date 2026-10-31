@@ -10,6 +10,7 @@ data class WhisperSegmentTiming(
     val tokens: List<WhisperTokenTiming>
 )
 fun interface WhisperProgressListener { fun onProgress(progress: Int) }
+fun interface WhisperStageListener { fun onStage(stage: String) }
 
 data class WhisperTranscription(val segments: List<WhisperSegmentTiming>) {
     val fullText: String get() = segments.joinToString(" ") { it.text.trim() }.trim()
@@ -25,7 +26,8 @@ object WhisperNative {
         audio16kMono: FloatArray,
         language: String,
         threads: Int,
-        progressListener: WhisperProgressListener
+        progressListener: WhisperProgressListener,
+        stageListener: WhisperStageListener
     ): String
 
     fun parseResult(raw: String): WhisperTranscription {
