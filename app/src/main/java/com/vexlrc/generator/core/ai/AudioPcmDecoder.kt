@@ -12,7 +12,7 @@ import kotlin.math.floor
 /** Decodes a selected audio URI to 16 kHz mono float PCM for whisper.cpp. */
 object AudioPcmDecoder {
     private const val TARGET_RATE = 16_000
-    private const val MAX_AUDIO_MS = 20 * 60 * 1000L
+    private const val MAX_AUDIO_MS = 10 * 60 * 1000L
 
     fun decode(context: Context, uri: Uri): FloatArray {
         val extractor = MediaExtractor()
@@ -40,7 +40,7 @@ object AudioPcmDecoder {
             var rate = if (format.containsKey(MediaFormat.KEY_SAMPLE_RATE)) format.getInteger(MediaFormat.KEY_SAMPLE_RATE) else 44100
             var channels = if (format.containsKey(MediaFormat.KEY_CHANNEL_COUNT)) format.getInteger(MediaFormat.KEY_CHANNEL_COUNT).coerceAtLeast(1) else 1
             var encoding = AudioFormat.ENCODING_PCM_16BIT
-            val mono = ArrayList<Float>()
+            val mono = FloatAccumulator()
             var inputEnded = false
             var outputEnded = false
             val info = MediaCodec.BufferInfo()
@@ -100,19 +100,33 @@ object AudioPcmDecoder {
                 }
             }
             require(mono.isNotEmpty()) { "No decoded audio samples" }
-            if (rate == TARGET_RATE) return mono.toFloatArray()
-            val outputCount = floor(mono.size.toDouble() * TARGET_RATE / rate).toInt().coerceAtLeast(1)
+            val source = mono.toArray()
+            if (rate == TARGET_RATE) return source
+            val outputCount = floor(source.size.toDouble() * TARGET_RATE / rate).toInt().coerceAtLeast(1)
             return FloatArray(outputCount) { index ->
                 val sourcePosition = index.toDouble() * rate / TARGET_RATE
-                val left = sourcePosition.toInt().coerceIn(0, mono.lastIndex)
-                val right = (left + 1).coerceAtMost(mono.lastIndex)
+                val left = sourcePosition.toInt().coerceIn(0, source.lastIndex)
+                val right = (left + 1).coerceAtMost(source.lastIndex)
                 val fraction = (sourcePosition - left).toFloat()
-                mono[left] * (1f - fraction) + mono[right] * fraction
+                source[left] * (1f - fraction) + source[right] * fraction
             }
         } finally {
             runCatching { codec?.stop() }
             runCatching { codec?.release() }
             runCatching { extractor.release() }
         }
+    }
+
+    private class FloatAccumulator {
+        private var values = FloatArray(16_384)
+        var size: Int = 0
+            private set
+
+        fun add(value: Float) {
+            if (size == values.size) values = values.copyOf(values.size * 2)
+            values[size++] = value
+        }
+
+        fun toArray(): FloatArray = values.copyOf(size)
     }
 }
