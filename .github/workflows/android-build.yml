@@ -44,7 +44,7 @@ jobs:
           yes | "$SDKMANAGER" --licenses >/dev/null || true
           test -d "$ANDROID_HOME/platforms/android-35" || { echo "Android SDK Platform 35 is missing"; exit 1; }
           test -d "$ANDROID_HOME/build-tools/35.0.0" || { echo "Android Build Tools 35.0.0 are missing"; exit 1; }
-          yes | "$SDKMANAGER" "ndk;27.0.12077973" "cmake;3.22.1" >/dev/null
+          "$SDKMANAGER" --install "ndk;27.0.12077973" "cmake;3.22.1" --sdk_root="$ANDROID_HOME"
           echo "Android SDK Platform 35, Build Tools, NDK and CMake are ready."
 
       - name: Build debug APK
