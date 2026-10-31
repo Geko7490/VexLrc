@@ -19,9 +19,10 @@ A native Android app for creating and editing synchronized LRC and Enhanced LRC 
 - **Whisper Model Center:** downloads multilingual Tiny, Base and Small GGML models into app-private storage; supports progress, selection and deletion.
 - **Transcription:** Auto / Turkish / English language selection; results are inserted as editable lyric segments.
 - **Token timestamps:** Whisper token-level timestamps are enabled experimentally and can populate word timing where the tokenizer exposes usable boundaries. Review results before exporting.
-- **Dedicated forced alignment:** not yet integrated. Whisper token timestamps are not a substitute for a transcript-conditioned forced-alignment model.
-- **Demucs vocal separation:** not yet integrated. The UI explicitly marks it unavailable rather than offering an unverified multi-hundred-megabyte model.
-- **Audio safety:** local PCM decoder limits source audio to 10 minutes to avoid excessive memory use.
+- **Dedicated forced alignment:** ONNX Runtime CTC/Viterbi alignment for Turkish and English. Downloads the matching Parseh ONNX model and vocabulary; aligns the current transcript to the selected audio. Results should be reviewed, especially with noisy music or inaccurate lyrics.
+- **Demucs vocal separation:** ONNX Runtime HTDemucs FT vocals model (166 MB), chunked overlap-add, WAV output and optional use as Whisper transcription input. Current audio decoder downmixes source audio to mono before duplicating it to stereo for inference; output is intended for transcription rather than music playback.
+- **Audio safety:** local PCM decoder limits source audio to 10 minutes. Demucs is memory-intensive and is limited to five minutes per run on mobile; test shorter tracks first.
+- **ONNX Runtime:** used for forced alignment and Demucs inference. Models are downloaded separately and stored in app-private storage.
 
 The native Whisper build fetches the pinned upstream `ggml-org/whisper.cpp` v1.9.5 source during CMake configuration. Android builds require NDK 27.0.12077973 and CMake 3.22.1. The first build therefore needs network access; inference itself runs locally after a model has been downloaded.
 
