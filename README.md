@@ -13,16 +13,17 @@ A native Android app for creating and editing synchronized LRC and Enhanced LRC 
 - Unit tests for LRC formatting and timestamp handling.
 - GitHub Actions workflow for debug APK builds.
 
-## Planned / not yet implemented
+## Local AI status
 
-- whisper.cpp native transcription and downloadable model manager.
-- Forced alignment for accurate word-level timestamps.
-- Demucs vocal separation.
-- Room-backed project persistence and resumable AI jobs.
-- Waveform rendering and visual drag-to-adjust timing.
-- Device compatibility, memory and thermal management for local models.
+- **Whisper.cpp native runtime:** Android NDK/CMake integration, offline inference bridge, PCM decoding and model-file loading.
+- **Whisper Model Center:** downloads multilingual Tiny, Base and Small GGML models into app-private storage; supports progress, selection and deletion.
+- **Transcription:** Auto / Turkish / English language selection; results are inserted as editable lyric segments.
+- **Token timestamps:** Whisper token-level timestamps are enabled experimentally and can populate word timing where the tokenizer exposes usable boundaries. Review results before exporting.
+- **Dedicated forced alignment:** not yet integrated. Whisper token timestamps are not a substitute for a transcript-conditioned forced-alignment model.
+- **Demucs vocal separation:** not yet integrated. The UI explicitly marks it unavailable rather than offering an unverified multi-hundred-megabyte model.
+- **Audio safety:** local PCM decoder limits source audio to 10 minutes to avoid excessive memory use.
 
-These features are explicitly marked as pending until implemented and tested on real Android devices.
+The native Whisper build fetches the pinned upstream `ggml-org/whisper.cpp` v1.9.5 source during CMake configuration. Android builds require NDK 27.0.12077973 and CMake 3.22.1. The first build therefore needs network access; inference itself runs locally after a model has been downloaded.
 
 ## Technology
 
@@ -46,7 +47,7 @@ GitHub Actions builds the debug APK on pushes and pull requests to main/master a
 
 ## Privacy
 
-The initial app does not upload audio. Future AI inference is designed to run locally. Model downloads, when added, will require network access only to retrieve model files.
+Audio is decoded and processed on-device. Whisper model downloads require internet access, but selected audio and transcription requests are not uploaded to a remote inference service. Model files are stored in app-private storage.
 
 ## License
 
