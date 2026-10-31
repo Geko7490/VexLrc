@@ -14,6 +14,21 @@ struct ProgressBridge {
     jmethodID method;
 };
 
+struct StageBridge {
+    JNIEnv *env;
+    jobject listener;
+    jmethodID method;
+};
+
+static void reportStage(StageBridge *bridge, const char *stage) {
+    if (!bridge || !bridge->env || !bridge->listener || !bridge->method) return;
+    jstring value = bridge->env->NewStringUTF(stage);
+    if (!value) return;
+    bridge->env->CallVoidMethod(bridge->listener, bridge->method, value);
+    bridge->env->DeleteLocalRef(value);
+    if (bridge->env->ExceptionCheck()) bridge->env->ExceptionClear();
+}
+
 static void whisperProgressCallback(whisper_context *, whisper_state *, int progress, void * user_data) {
     auto * bridge = static_cast<ProgressBridge *>(user_data);
     if (!bridge || !bridge->env || !bridge->listener || !bridge->method) return;
@@ -46,11 +61,23 @@ extern "C"
 JNIEXPORT jstring JNICALL
 Java_com_vexlrc_generator_core_ai_WhisperNative_transcribe(
         JNIEnv *env, jobject,
-        jstring modelPath, jfloatArray audio, jstring language, jint threads, jobject progressListener) {
+        jstring modelPath, jfloatArray audio, jstring language, jint threads, jobject progressListener, jobject stageListener) {
+    const jsize sampleCount = env->GetArrayLength(audio);
+    if (sampleCount < 16000) {
+        return env->NewStringUTF("{\\"error\\":\\"Audio is empty or shorter than one second after decoding\\"}");
+    }
+    StageBridge stage { env, stageListener, nullptr };
+    if (stageListener) {
+        jclass stageClass = env->GetObjectClass(stageListener);
+        stage.method = env->GetMethodID(stageClass, "onStage", "(Ljava/lang/String;)V");
+        env->DeleteLocalRef(stageClass);
+    }
+    reportStage(&stage, "Checking model file");
     const char *model = env->GetStringUTFChars(modelPath, nullptr);
     const char *lang = env->GetStringUTFChars(language, nullptr);
     whisper_context_params contextParams = whisper_context_default_params();
     contextParams.use_gpu = false;
+    reportStage(&stage, "Loading Whisper model into memory");
     whisper_context *ctx = whisper_init_from_file_with_params(model, contextParams);
     env->ReleaseStringUTFChars(modelPath, model);
     if (!ctx) {
@@ -58,8 +85,13 @@ Java_com_vexlrc_generator_core_ai_WhisperNative_transcribe(
         return env->NewStringUTF("{\"error\":\"Whisper could not load this model file\"}");
     }
 
+    reportStage(&stage, "Whisper model loaded; preparing inference");
     jfloat *samples = env->GetFloatArrayElements(audio, nullptr);
-    const jsize sampleCount = env->GetArrayLength(audio);
+    if (!samples) {
+        whisper_free(ctx);
+        env->ReleaseStringUTFChars(language, lang);
+        return env->NewStringUTF("{\\"error\\":\\"Could not access decoded audio samples\\"}");
+    }
     whisper_full_params params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
     params.print_realtime = false;
     params.print_progress = false;
@@ -79,6 +111,7 @@ Java_com_vexlrc_generator_core_ai_WhisperNative_transcribe(
         env->DeleteLocalRef(listenerClass);
     }
 
+    reportStage(&stage, "Running Whisper transcription");
     const int result = whisper_full(ctx, params, samples, sampleCount);
     env->ReleaseFloatArrayElements(audio, samples, JNI_ABORT);
     env->ReleaseStringUTFChars(language, lang);
@@ -110,5 +143,6 @@ Java_com_vexlrc_generator_core_ai_WhisperNative_transcribe(
     }
     json << "]}";
     whisper_free(ctx);
+    reportStage(&stage, "Whisper finished");
     return env->NewStringUTF(json.str().c_str());
 }
