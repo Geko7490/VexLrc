@@ -1,40 +1,53 @@
 # VEX LRC Generator
 
-Native Android application for creating synchronized LRC and Enhanced LRC lyrics from locally processed audio.
+A native Android app for creating and editing synchronized LRC and Enhanced LRC lyrics from audio.
 
-## Project goals
+## Implemented foundation
 
-- Fully on-device audio processing; no mandatory cloud API.
-- Standard line-synchronized LRC and word-synchronized Enhanced LRC.
-- Editable lyric timeline with audio playback and waveform.
-- Downloadable, verifiable local AI models.
-- Offline-first project storage and resumable processing.
-- Real Android APK built with GitHub Actions.
+- Native Kotlin + Jetpack Compose Android application.
+- VEX dark/purple interface with Home, Studio, Model Center and Settings sections.
+- Audio file selection through Android Storage Access Framework.
+- Local audio playback in the Studio.
+- Editable timestamped lyric text and LRC file export.
+- Kotlin formatter for standard LRC and word-timestamped Enhanced LRC.
+- Unit tests for LRC formatting and timestamp handling.
+- GitHub Actions workflow for debug APK builds.
+
+## Planned / not yet implemented
+
+- whisper.cpp native transcription and downloadable model manager.
+- Forced alignment for accurate word-level timestamps.
+- Demucs vocal separation.
+- Room-backed project persistence and resumable AI jobs.
+- Waveform rendering and visual drag-to-adjust timing.
+- Device compatibility, memory and thermal management for local models.
+
+These features are explicitly marked as pending until implemented and tested on real Android devices.
 
 ## Technology
 
 - Kotlin, Jetpack Compose, Material 3
-- MVVM + Clean Architecture
-- Room, DataStore, WorkManager
+- Android Gradle Plugin 8.7.3, Kotlin 2.0.21
+- JDK 17, compile/target SDK 35, min SDK 26
 - AndroidX Media3
-- Native AI adapters planned for whisper.cpp and a compatible forced-alignment engine
+- JUnit 4
 
-## Current implementation status
+## Build locally
 
-This repository is being initialized. AI inference, model packaging, alignment and vocal separation must be integrated and validated incrementally; they are not considered implemented merely because their interfaces exist.
+Open the repository in Android Studio with JDK 17 and Android SDK 35 installed, or install Gradle 8.9 and run:
 
-## Build
+    gradle assembleDebug
 
-Open the project in Android Studio with JDK 17 and Android SDK 35 installed, then run:
+The debug APK is generated at:
 
-    ./gradlew assembleDebug
+    app/build/outputs/apk/debug/app-debug.apk
 
-The debug APK is generated at app/build/outputs/apk/debug/app-debug.apk.
+GitHub Actions builds the debug APK on pushes and pull requests to main/master and uploads it as an artifact.
 
 ## Privacy
 
-Audio files and generated lyrics are processed locally. The app does not upload user audio to a server.
+The initial app does not upload audio. Future AI inference is designed to run locally. Model downloads, when added, will require network access only to retrieve model files.
 
 ## License
 
-To be selected before public distribution. Third-party model weights and native dependencies retain their own licenses.
+A project license has not yet been selected. Third-party libraries, native engines and model weights will retain their own licenses.
