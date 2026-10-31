@@ -464,7 +464,6 @@ private fun VexLrcApp() {
                                             Spacer(Modifier.width(8.dp))
                                             Text(if (aiBusy) "Processing audio…" else "Transcribe with Whisper")
                                         }
-                                        if (aiBusy) AiProgressPanel(aiProgressStage, aiProgress, aiProgressDeterminate)
                                         Text("Whisper token timestamps are experimental. For accurate word-level timing, run the transcript-conditioned aligner below.", color = Muted, fontSize = 10.sp)
                                         Divider()
                                         Text("VOCAL SEPARATION", color = Purple, fontSize = 11.sp, fontWeight = FontWeight.Bold)
@@ -477,16 +476,26 @@ private fun VexLrcApp() {
                                                 else if (model == null) { status = "Download the Demucs model in Model Center"; tab = "Models" }
                                                 else coroutineScope.launch {
                                                     aiBusy = true
+                                                    aiProgress = 0f
+                                                    aiProgressDeterminate = false
+                                                    aiProgressStage = "Decoding audio for Demucs"
                                                     try {
                                                         status = "Decoding audio for vocal separation…"
                                                         val pcm = withContext(Dispatchers.IO) { AudioPcmDecoder.decode(context.applicationContext, source) }
                                                         status = "Demucs is separating vocals…"
-                                                        val file = withContext(Dispatchers.Default) { demucsSeparator.separate(pcm, model) }
+                                                        aiProgressStage = "Separating vocals"
+                                                        aiProgressDeterminate = true
+                                                        val file = withContext(Dispatchers.Default) {
+                                                            demucsSeparator.separate(pcm, model) { progress ->
+                                                                withContext(Dispatchers.Main) { aiProgress = progress.coerceIn(0, 100) / 100f }
+                                                            }
+                                                        }
+                                                        aiProgress = 1f
                                                         aiAudioFile = file
                                                         aiAudioUri = Uri.fromFile(file)
                                                         status = "Vocal stem ready. Whisper will use it for transcription."
                                                     } catch (e: Exception) { status = "Demucs failed: " + (e.localizedMessage ?: "unknown error") }
-                                                    finally { aiBusy = false }
+                                                    finally { aiBusy = false; aiProgressDeterminate = false }
                                                 }
                                             },
                                             enabled = !aiBusy && demucsInstalled,
