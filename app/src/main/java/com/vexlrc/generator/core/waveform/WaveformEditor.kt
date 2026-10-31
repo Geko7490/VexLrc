@@ -70,16 +70,16 @@ fun WaveformEditor(
                     onDragStart = { point ->
                         val visibleDuration = (duration / zoom).toLong().coerceAtLeast(1L)
                         val windowStart = viewStartMs
-                        val touchedTime = windowStart + (point.x / size.width.coerceAtLeast(1f) * visibleDuration).toLong()
-                        val closest = latestMarkers.value.minByOrNull { abs(it.timeMs - touchedTime) }
+                        val touchedTime = windowStart + (point.x / size.width.toFloat().coerceAtLeast(1f) * visibleDuration).toLong()
+                        val closest = latestMarkers.minByOrNull { abs(it.timeMs - touchedTime) }
                         selectedMarker = closest?.takeIf {
-                            abs(it.timeMs - touchedTime) <= (visibleDuration * 18f / size.width.coerceAtLeast(1f)).toLong().coerceAtLeast(150L)
+                            abs(it.timeMs - touchedTime) <= (visibleDuration * 18f / size.width.toFloat().coerceAtLeast(1f)).toLong().coerceAtLeast(150L)
                         }?.id
                     },
                     onDrag = { change, _ ->
                         val visibleDuration = (duration / zoom).toLong().coerceAtLeast(1L)
                         val windowStart = viewStartMs
-                        val ratio = (change.position.x / size.width.coerceAtLeast(1f)).coerceIn(0f, 1f)
+                        val ratio = (change.position.x / size.width.toFloat().coerceAtLeast(1f)).coerceIn(0f, 1f)
                         val time = (windowStart + ratio * visibleDuration).toLong().coerceIn(0L, duration)
                         val markerId = selectedMarker
                         if (markerId != null) latestOnMoveMarker(markerId, time) else latestOnSeek(time)
@@ -110,7 +110,7 @@ fun WaveformEditor(
                 drawLine(Color(0xFF806A96), Offset(0f, centerY), Offset(size.width, centerY), 2.dp.toPx())
             }
 
-            latestMarkers.value.forEach { marker ->
+            latestMarkers.forEach { marker ->
                 if (marker.timeMs in windowStart..windowEnd) {
                     val x = ((marker.timeMs - windowStart).toFloat() / visibleDuration) * size.width
                     drawLine(Color(0xFFFFB45C), Offset(x, 4.dp.toPx()), Offset(x, size.height - 4.dp.toPx()), 1.dp.toPx())
