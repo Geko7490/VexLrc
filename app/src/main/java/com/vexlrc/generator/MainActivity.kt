@@ -69,8 +69,6 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-
 @Composable
 private fun AiProgressPanel(stage: String, progress: Float, determinate: Boolean) {
     Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF252130))) {
@@ -96,6 +94,7 @@ private fun AiProgressPanel(stage: String, progress: Float, determinate: Boolean
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun VexLrcApp() {
     val context = LocalContext.current
