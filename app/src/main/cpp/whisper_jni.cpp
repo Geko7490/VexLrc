@@ -64,7 +64,7 @@ Java_com_vexlrc_generator_core_ai_WhisperNative_transcribe(
         jstring modelPath, jfloatArray audio, jstring language, jint threads, jobject progressListener, jobject stageListener) {
     const jsize sampleCount = env->GetArrayLength(audio);
     if (sampleCount < 16000) {
-        return env->NewStringUTF("{\\"error\\":\\"Audio is empty or shorter than one second after decoding\\"}");
+        return env->NewStringUTF("{\"error\":\"Audio is empty or shorter than one second after decoding\"}");
     }
     StageBridge stage { env, stageListener, nullptr };
     if (stageListener) {
@@ -90,7 +90,7 @@ Java_com_vexlrc_generator_core_ai_WhisperNative_transcribe(
     if (!samples) {
         whisper_free(ctx);
         env->ReleaseStringUTFChars(language, lang);
-        return env->NewStringUTF("{\\"error\\":\\"Could not access decoded audio samples\\"}");
+        return env->NewStringUTF("{\"error\":\"Could not access decoded audio samples\"}");
     }
     whisper_full_params params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
     params.print_realtime = false;
