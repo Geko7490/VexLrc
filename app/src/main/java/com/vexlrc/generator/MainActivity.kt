@@ -699,7 +699,7 @@ private fun VexLrcApp() {
                         Divider()
                         Text("WORD TIMING", color = Purple, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         ModelCard("Whisper token timestamps", "Experimental token-level timestamps are included with transcription. Review and correct them in Studio.", "Available with Whisper • experimental")
-                        ModelCard("Dedicated Forced Alignment", "A separate transcript-conditioned aligner is not bundled yet. Whisper token timing must not be treated as guaranteed forced alignment.", "Not integrated")
+                        ModelCard("Dedicated Forced Alignment", "Turkish and English transcript-conditioned CTC/Viterbi aligners can be downloaded in Model Center. Review generated word timings before export.", "Integrated • model download required")
                         Divider()
                         Text("VOCAL SEPARATION", color = Purple, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         ModelCard("Demucs", "ONNX vocal-stem extraction with chunked overlap-add is integrated. Output can be used as Whisper input; test performance on device.", "Integrated • device test needed")
