@@ -119,6 +119,17 @@ private fun VexLrcApp() {
     LaunchedEffect(Unit) {
         projects = withContext(Dispatchers.IO) { projectStore.list() }
         exportHistory = withContext(Dispatchers.IO) { exportStore.list() }
+        val recent = projects.firstOrNull()
+        if (recent != null) {
+            currentProjectId = recent.id
+            projectName = recent.name
+            audioUri = recent.audioUri?.let { runCatching { Uri.parse(it) }.getOrNull() }
+            audioName = recent.audioUri?.let { Uri.parse(it).lastPathSegment?.substringAfterLast('/') } ?: "Audio unavailable"
+            duration = recent.durationMs
+            lines = decodeLines(recent.lyricsJson)
+            nextId = (lines.maxOfOrNull { it.id } ?: 0) + 1
+            status = "Restored your last project"
+        }
     }
 
     LaunchedEffect(audioUri, lines, duration, projectName, currentProjectId) {
