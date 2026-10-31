@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Neon audio arc -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FF8B35F5"
+        android:strokeWidth="3.2"
+        android:strokeLineCap="round"
+        android:pathData="M20,60 C13,38 31,19 52,19" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FF16C8F5"
+        android:strokeWidth="2.4"
+        android:strokeLineCap="round"
+        android:pathData="M18,68 C16,79 25,88 37,90" />
+    <!-- Waveform -->
+    <path android:fillColor="#FF713BDE" android:pathData="M30,36h5v12h-5z M39,29h5v19h-5z M48,24h5v24h-5z M57,31h5v17h-5z" />
+    <path android:fillColor="#FF16C8F5" android:pathData="M66,35h5v13h-5z M75,28h5v20h-5z" />
+    <!-- V monogram -->
+    <path android:fillColor="#FFB34BFF" android:pathData="M23,43h10l13,32 13,-32h10L49,88h-6z" />
+    <path android:fillColor="#FF19C9F4" android:pathData="M57,43h10L49,88h-9z" />
+    <!-- Lyric timeline and playhead -->
+    <path android:fillColor="#FF7A4BEA" android:pathData="M68,61h20v4H68z M64,70h24v4H64z M59,79h29v4H59z" />
+    <path android:fillColor="#FFFFC43D" android:pathData="M82,55h2v32h-2z M79,53a4,4 0,1 0,8 0a4,4 0,1 0,-8 0" />
+    <!-- Music note -->
+    <path android:fillColor="#FF20D1F7" android:pathData="M76,13v13c-1.5,-1.2 -4.5,-1.2 -6,0.5c-2.8,3.2 1.8,7 5,4.8c1.6,-1.1 2,-2.5 2,-4.3V18l9,-2v8c-1.5,-1.2 -4.5,-1.2 -6,0.5c-2.8,3.2 1.8,7 5,4.8c1.6,-1.1 2,-2.5 2,-4.3V12z" />
+</vector>
