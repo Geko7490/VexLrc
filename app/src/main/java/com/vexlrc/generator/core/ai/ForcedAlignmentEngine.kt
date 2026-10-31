@@ -7,6 +7,8 @@ import ai.onnxruntime.OrtSession
 import org.json.JSONObject
 import java.io.File
 import java.nio.FloatBuffer
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import kotlin.math.sqrt
 import java.util.Locale
 
@@ -41,7 +43,8 @@ object ForcedAlignmentEngine {
             setIntraOpNumThreads(Runtime.getRuntime().availableProcessors().coerceIn(2, 4))
         }
         env.createSession(modelFile.absolutePath, options).use { session ->
-            val input = OnnxTensor.createTensor(env, FloatBuffer.wrap(normalized), longArrayOf(1, normalized.size.toLong()))
+            val inputBuffer = ByteBuffer.allocateDirect(normalized.size * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply { put(normalized); rewind() }
+            val input = OnnxTensor.createTensor(env, inputBuffer, longArrayOf(1, normalized.size.toLong()))
             input.use {
                 session.run(mapOf(session.inputNames.first() to input)).use { result ->
                     val output = result[session.outputNames.first()] as OnnxTensor
