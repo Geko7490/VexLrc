@@ -23,13 +23,16 @@ object CtcForcedAlignmentRunner {
         while (keys.hasNext()) { val key = keys.next(); vocab[key] = vocabJson.getInt(key) }
         val labels = mutableListOf<Int>()
         val languageLocale = if (modelFile.name.startsWith("tr-")) Locale.forLanguageTag("tr") else Locale.US
+        // Parseh's Turkish vocabulary uses [UNK], while English uses <unk>.
+        // Keep punctuation/unsupported characters as wildcard tokens instead of aborting alignment.
+        val unknownToken = listOf("<unk>", "[UNK]").firstOrNull { vocab.containsKey(it) }
+            ?: error("Aligner vocabulary is missing its unknown-character token")
         val chars = transcript.map { original ->
             val token = if (original.isWhitespace()) "|" else original.toString().lowercase(languageLocale)
-            require(token.length == 1) { "Unsupported character in transcript: '$original'" }
-            val id = vocab[token] ?: vocab["<unk>"] ?: error("Aligner vocabulary does not contain '$original'")
-            token to original
+            val mapped = if (token.length == 1 && vocab.containsKey(token)) token else unknownToken
+            mapped to original
         }
-        chars.forEach { pair -> labels += (vocab[pair.first] ?: vocab["<unk>"] ?: 0) }
+        chars.forEach { pair -> labels += (vocab[pair.first] ?: error("Invalid aligner token: '${pair.first}'")) }
         require(labels.isNotEmpty()) { "Transcript has no alignable characters" }
         val mean = pcm16k.average().toFloat()
         var variance = 0.0
