@@ -469,7 +469,7 @@ private fun VexLrcApp() {
                                                         val pcm = withContext(Dispatchers.IO) { AudioPcmDecoder.decode(context.applicationContext, source) }
                                                         val transcript = lines.joinToString(" ") { it.text.trim() }.trim()
                                                         status = "Running CTC Viterbi alignment…"
-                                                        val words = withContext(Dispatchers.Default) { ForcedAlignmentEngine.align(context.applicationContext, model, vocab, pcm, transcript) }
+                                                        val words = withContext(Dispatchers.Default) { CtcForcedAlignmentRunner.align(context.applicationContext, model, vocab, pcm, transcript) }
                                                         var cursor = 0
                                                         lines = lines.map { line ->
                                                             val count = line.text.trim().split(Regex("\\s+")).count { it.isNotBlank() }
