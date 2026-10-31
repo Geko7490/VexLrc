@@ -492,7 +492,7 @@ private fun VexLrcApp() {
                                                         aiProgressStage = "Separating vocals"
                                                         aiProgressDeterminate = true
                                                         val file = withContext(Dispatchers.Default) {
-                                                            demucsSeparator.separate(pcm, model) { progress ->
+                                                            demucsSeparator.separate(pcm, model, performanceThreads) { progress ->
                                                                 withContext(Dispatchers.Main) { aiProgress = progress.coerceIn(0, 100) / 100f }
                                                             }
                                                         }
