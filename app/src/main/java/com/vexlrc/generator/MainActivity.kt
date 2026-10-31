@@ -31,6 +31,7 @@ import com.vexlrc.generator.core.lrc.LrcValidator
 import com.vexlrc.generator.core.ai.AudioPcmDecoder
 import com.vexlrc.generator.core.ai.WhisperModelManager
 import com.vexlrc.generator.core.ai.WhisperNative
+import com.vexlrc.generator.core.ai.WhisperProgressListener
 import com.vexlrc.generator.core.ai.WhisperTokenTiming
 import com.vexlrc.generator.core.ai.ForcedAlignmentModelManager
 import com.vexlrc.generator.core.ai.CtcForcedAlignmentRunner
@@ -69,6 +70,32 @@ class MainActivity : ComponentActivity() {
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
+
+@Composable
+private fun AiProgressPanel(stage: String, progress: Float, determinate: Boolean) {
+    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF252130))) {
+        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(stage.ifBlank { "Processing" }, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                Spacer(Modifier.weight(1f))
+                if (determinate) Text("${(progress * 100).toInt()}%", color = Purple, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                else Text("Working…", color = Muted, fontSize = 11.sp)
+            }
+            if (determinate) LinearProgressIndicator(
+                progress = { progress.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth(),
+                color = Purple, trackColor = Color(0xFF40364F)
+            ) else LinearProgressIndicator(
+                modifier = Modifier.fillMaxWidth(), color = Purple, trackColor = Color(0xFF40364F)
+            )
+            Text(
+                if (determinate) "Progress is reported by the processing engine."
+                else "Preparing audio or loading the model. This stage has no exact percentage yet.",
+                color = Muted, fontSize = 10.sp
+            )
+        }
+    }
+}
+
 @Composable
 private fun VexLrcApp() {
     val context = LocalContext.current
@@ -102,6 +129,9 @@ private fun VexLrcApp() {
     var downloadingModelId by remember { mutableStateOf<String?>(null) }
     var modelDownloadProgress by remember { mutableFloatStateOf(0f) }
     var aiBusy by remember { mutableStateOf(false) }
+    var aiProgress by remember { mutableFloatStateOf(0f) }
+    var aiProgressStage by remember { mutableStateOf("") }
+    var aiProgressDeterminate by remember { mutableStateOf(false) }
     var currentProjectId by remember { mutableStateOf<String?>(null) }
     var projectName by remember { mutableStateOf("Untitled project") }
     var projects by remember { mutableStateOf(emptyList<LrcProject>()) }
@@ -383,16 +413,27 @@ private fun VexLrcApp() {
                                                 } else {
                                                     coroutineScope.launch {
                                                         aiBusy = true
+                                                        aiProgress = 0f
+                                                        aiProgressDeterminate = false
+                                                        aiProgressStage = "Decoding audio"
                                                         status = "Decoding audio for Whisper…"
                                                         try {
                                                             val pcm = withContext(Dispatchers.IO) { AudioPcmDecoder.decode(context.applicationContext, selectedUri) }
+                                                            aiProgressStage = "Whisper transcription"
+                                                            aiProgress = 0f
+                                                            aiProgressDeterminate = true
                                                             status = "Whisper is transcribing…"
                                                             val raw = withContext(Dispatchers.Default) {
                                                                 WhisperNative.transcribe(
                                                                     modelFile.absolutePath,
                                                                     pcm,
                                                                     selectedWhisperLanguage,
-                                                                    Runtime.getRuntime().availableProcessors().coerceIn(2, 4)
+                                                                    Runtime.getRuntime().availableProcessors().coerceIn(2, 4),
+                                                                    WhisperProgressListener { progress ->
+                                                                        coroutineScope.launch(Dispatchers.Main) {
+                                                                            aiProgress = progress.coerceIn(0, 100) / 100f
+                                                                        }
+                                                                    }
                                                                 )
                                                             }
                                                             val result = WhisperNative.parseResult(raw)
@@ -403,11 +444,14 @@ private fun VexLrcApp() {
                                                             }
                                                             lines = generated
                                                             nextId = firstId + generated.size
+                                                            aiProgress = 1f
+                                                            aiProgressStage = "Transcription complete"
                                                             status = "Transcription complete • ${generated.size} segments"
                                                         } catch (error: Exception) {
                                                             status = "Whisper failed: " + (error.localizedMessage ?: "unknown error")
                                                         } finally {
                                                             aiBusy = false
+                                                            aiProgressDeterminate = false
                                                         }
                                                     }
                                                 }
@@ -420,6 +464,7 @@ private fun VexLrcApp() {
                                             Spacer(Modifier.width(8.dp))
                                             Text(if (aiBusy) "Processing audio…" else "Transcribe with Whisper")
                                         }
+                                        if (aiBusy) AiProgressPanel(aiProgressStage, aiProgress, aiProgressDeterminate)
                                         Text("Whisper token timestamps are experimental. For accurate word-level timing, run the transcript-conditioned aligner below.", color = Muted, fontSize = 10.sp)
                                         Divider()
                                         Text("VOCAL SEPARATION", color = Purple, fontSize = 11.sp, fontWeight = FontWeight.Bold)
@@ -447,6 +492,7 @@ private fun VexLrcApp() {
                                             enabled = !aiBusy && demucsInstalled,
                                             modifier = Modifier.fillMaxWidth()
                                         ) { Text(if (aiAudioUri != null) "Vocal stem ready • separate again" else "Separate vocals with Demucs") }
+                                        if (aiBusy) AiProgressPanel(aiProgressStage, aiProgress, aiProgressDeterminate)
                                         if (aiAudioUri != null) {
                                             TextButton(onClick = { aiAudioUri = null; aiAudioFile = null }) { Text("Use original audio") }
                                         }
